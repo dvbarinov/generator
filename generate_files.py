@@ -16,7 +16,7 @@
     python generate_files.py --count 100 --size-range 50 200 --random-sizes
 
     # Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
-    python generate_files.py -n 500 --log-distribution 1 500 2.0
+    python generate_files.py -n 100 --log-distribution 1 500 2.0
 
     # Типовые файлы
     python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
@@ -214,40 +214,9 @@ def parse_outer_args():
     return args
 
 
-def main():
-    """Основной запуск"""
-    args = parse_outer_args()
+def define_bin_size(args, sizes):
+    skew = 0.0
 
-    if args.count <= 0:
-        raise ValueError("Количество файлов должно быть > 0")
-    if args.workers < 1:
-        raise ValueError("Число потоков должно быть >= 1")
-
-    # Конфигурация контента
-    content_config = {"type": args.content_type}
-    if args.content_type == "text":
-        content_config.update({
-            "text_lines": args.text_lines,
-            "text_words_per_line": args.text_words_per_line
-        })
-        # Для текста игнорируем размер в КБ — используем реальный объём
-        sizes = [0] * args.count  # будет перезаписано
-    elif args.content_type == "json":
-        content_config["json_schema"] = args.json_schema
-        sizes = [0] * args.count
-    elif args.content_type == "image":
-        content_config["image_format"] = args.image_format
-        try:
-            w, h = map(int, args.image_size.split("x"))
-            content_config["image_size"] = (w, h)
-        except ValueError:
-            raise ValueError("Неверный формат --image-size. Используйте WxH, например: 1920x1080")
-        sizes = [0] * args.count
-    else:
-        # binary — используем sizes как раньше
-        pass
-
-    # Определяем список размеров
     if args.size is not None:
         if args.size < 0:
             raise ValueError("Размер не может быть отрицательным")
@@ -284,6 +253,48 @@ def main():
 
     else:
         raise RuntimeError("Не выбран режим размера")
+    return sizes, skew
+
+
+def main():
+    """Основной запуск"""
+    args = parse_outer_args()
+
+    if args.count <= 0:
+        raise ValueError("Количество файлов должно быть > 0")
+    if args.workers < 1:
+        raise ValueError("Число потоков должно быть >= 1")
+
+    sizes = []
+
+    # Конфигурация контента
+    content_config = {"type": args.content_type}
+    if args.content_type == "text":
+        content_config.update({
+            "text_lines": args.text_lines,
+            "text_words_per_line": args.text_words_per_line
+        })
+        # Для текста игнорируем размер в КБ — используем реальный объём
+        sizes = [0] * args.count  # будет перезаписано
+    elif args.content_type == "json":
+        content_config["json_schema"] = args.json_schema
+        sizes = [0] * args.count
+    elif args.content_type == "image":
+        content_config["image_format"] = args.image_format
+        try:
+            w, h = map(int, args.image_size.split("x"))
+            content_config["image_size"] = (w, h)
+        except ValueError as exc:
+            raise ValueError(
+                "Неверный формат --image-size. Используйте WxH, например: 1920x1080"
+            ) from exc
+        sizes = [0] * args.count
+    else:
+        # binary — используем sizes как раньше
+        pass
+
+    # Определяем список размеров
+    sizes, skew = define_bin_size(args, sizes)
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
