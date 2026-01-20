@@ -1,3 +1,12 @@
+"""
+Генератор тестовых файлов для загрузчика.
+
+Использование:
+    python generate_files.py --count 100 --size 1024 --output ./test_data
+
+Создаст 100 файлов по 1024 КБ (1 МБ) в папке ./test_data/
+"""
+
 import argparse
 import os
 from pathlib import Path
@@ -44,6 +53,11 @@ def main():
 
     args = parser.parse_args()
 
+    if args.count <= 0:
+        raise ValueError("Количество файлов должно быть > 0")
+    if args.size < 0:
+        raise ValueError("Размер не может быть отрицательным")
+
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -60,7 +74,7 @@ def main():
             print(f"  Создано: {i}/{args.count}")
 
     total_mb = args.count * args.size / 1024
-    print(f"\nГотово! Всего создано: {args.count} файлов ({total_mb:.2f} МБ)")
+    print(f"\n✅ Готово! Всего создано: {args.count} файлов ({total_mb:.2f} МБ)")
 
 
 if __name__ == "__main__":
