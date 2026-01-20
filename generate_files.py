@@ -1,5 +1,9 @@
 """
-Параллельный генератор тестовых файлов с поддержкой диапазона размеров.
+Параллельный генератор тестовых файлов с поддержкой:
+- фиксированного размера,
+- линейного диапазона,
+- случайного диапазона,
+- логарифмического распределения.
 
 Использование:
     # Фиксированный размер
@@ -10,6 +14,9 @@
 
     # Случайные размеры в диапазоне
     python generate_files.py --count 100 --size-range 50 200 --random-sizes
+
+    # Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
+    python generate_files.py -n 500 --log-distribution 1 5000 2.0
 """
 
 import argparse
@@ -17,6 +24,7 @@ import os
 from pathlib import Path
 import hashlib
 import random
+import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
@@ -49,18 +57,51 @@ def create_test_file(args):
     return str(filepath)
 
 
+def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) -> list[int]:
+    """
+    Генерирует размеры по логнормальному распределению.
+    skew > 1 → больше мелких файлов.
+    """
+    if min_kb <= 0 or max_kb <= 0:
+        raise ValueError("Размеры должны быть > 0 для лог-распределения")
+    if min_kb >= max_kb:
+        raise ValueError("MIN должен быть < MAX")
+
+    # Фиксируем seed для воспроизводимости
+    random.seed(42)
+
+    sizes = []
+    for _ in range(count):
+        # Генерируем log-normal значение
+        # mu=0, sigma=skew — управляет "хвостом"
+        u = random.gauss(0, skew)
+        val = math.exp(u)
+        # Нормализуем в диапазон [min, max]
+        normalized = min_kb + (val / (val + 1)) * (max_kb - min_kb)
+        sizes.append(int(normalized))
+    
+    # Убедимся, что хотя бы один файл близок к min и max
+    if count >= 2:
+        sizes[0] = min_kb
+        sizes[-1] = max_kb
+
+    return sizes
+
+
 def main():
     parser = argparse.ArgumentParser(description="Параллельный генератор тестовых файлов")
     parser.add_argument("--count", "-n", type=int, required=True, help="Количество файлов")
     
-    # Взаимоисключающие аргументы: либо --size, либо --size-range
-    size_group = parser.add_mutually_exclusive_group(required=True)
-    size_group.add_argument("--size", "-s", type=int, help="Фиксированный размер файла в КБ")
-    size_group.add_argument("--size-range", type=int, nargs=2, metavar=("MIN", "MAX"),
-                            help="Диапазон размеров в КБ (например: 100 500)")
+    # Группа выбора режима размера
+    size_mode = parser.add_mutually_exclusive_group(required=True)
+    size_mode.add_argument("--size", "-s", type=int, help="Фиксированный размер файла в КБ")
+    size_mode.add_argument("--size-range", type=int, nargs=2, metavar=("MIN", "MAX"),
+                           help="Диапазон размеров (равномерный или случайный)")
+    size_mode.add_argument("--log-distribution", type=str, nargs='+', metavar=("MIN", "MAX", "SKEW"),
+                           help="Логарифмическое распределение: MIN MAX [SKEW=1.0]")
 
     parser.add_argument("--random-sizes", action="store_true",
-                        help="Если указано с --size-range, размеры будут случайными")
+                        help="Случайные размеры в --size-range (иначе — равномерные)")
     parser.add_argument("--output", "-o", type=str, default="./test_files", help="Папка вывода")
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
@@ -78,7 +119,8 @@ def main():
         if args.size < 0:
             raise ValueError("Размер не может быть отрицательным")
         sizes = [args.size] * args.count
-    else:
+
+    elif args.size_range is not None:
         min_size, max_size = args.size_range
         if min_size < 0 or max_size < 0:
             raise ValueError("Размеры не могут быть отрицательными")
@@ -86,16 +128,28 @@ def main():
             raise ValueError("MIN не может быть больше MAX")
 
         if args.random_sizes:
-            # Случайные размеры в диапазоне
-            random.seed(42)  # для воспроизводимости
+            random.seed(42)
             sizes = [random.randint(min_size, max_size) for _ in range(args.count)]
         else:
-            # Равномерное распределение
             if args.count == 1:
                 sizes = [(min_size + max_size) // 2]
             else:
                 step = (max_size - min_size) / (args.count - 1)
                 sizes = [int(min_size + i * step) for i in range(args.count)]
+
+    elif args.log_distribution is not None:
+        if len(args.log_distribution) == 2:
+            min_kb, max_kb = map(int, args.log_distribution)
+            skew = 1.0
+        elif len(args.log_distribution) == 3:
+            min_kb, max_kb, skew = int(args.log_distribution[0]), int(args.log_distribution[1]), float(args.log_distribution[2])
+        else:
+            raise ValueError("Нужно указать MIN MAX [SKEW] для --log-distribution")
+
+        sizes = generate_log_sizes(args.count, min_kb, max_kb, skew)
+
+    else:
+        raise RuntimeError("Не выбран режим размера")
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -110,14 +164,15 @@ def main():
 
     print(f"Генерация {args.count} файлов в '{output_dir}' с {args.workers} потоками...")
     if args.size is not None:
-        print(f"  Размер: {args.size} КБ (фиксированный)")
+        print(f"  Режим: фиксированный размер {args.size} КБ")
+    elif args.size_range is not None:
+        avg = sum(sizes) / len(sizes)
+        print(f"  Режим: {'случайный' if args.random_sizes else 'равномерный'} диапазон")
+        print(f"  Размеры: {min(sizes)}–{max(sizes)} КБ (среднее: {avg:.1f} КБ)")
     else:
-        avg_size = sum(sizes) / len(sizes)
-        print(f"  Размеры: от {min(sizes)} до {max(sizes)} КБ (среднее: {avg_size:.1f} КБ)")
-        if args.random_sizes:
-            print("  Режим: случайные размеры")
-        else:
-            print("  Режим: равномерное распределение")
+        avg = sum(sizes) / len(sizes)
+        print(f"  Режим: логарифмическое распределение (skew={skew})")
+        print(f"  Размеры: {min(sizes)}–{max(sizes)} КБ (среднее: {avg:.1f} КБ)")
 
     start_time = time.time()
     completed = 0
