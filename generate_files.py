@@ -20,7 +20,6 @@
 """
 
 import argparse
-import os
 from pathlib import Path
 import hashlib
 import random
@@ -187,11 +186,11 @@ def main():
         # Обрабатываем завершённые задачи
         for future in as_completed(future_to_path):
             try:
-                filepath = future.result()
+                future.result()
                 completed += 1
                 if completed % max(1, args.count // 10) == 0 or completed == args.count:
                     print(f"  Создано: {completed}/{args.count}")
-            except Exception as exc:
+            except (OSError, IOError, ValueError) as exc:
                 filepath = future_to_path[future]
                 print(f"  Ошибка при создании {filepath}: {exc}")
 
@@ -199,7 +198,8 @@ def main():
     total_mb = sum(sizes) / 1024
     speed = total_mb / elapsed if elapsed > 0 else 0
 
-    print(f"\n✅ Готово! Всего: {args.count} файлов ({total_mb:.2f} МБ) за {elapsed:.2f} сек ({speed:.2f} МБ/с)")
+    print(f"\n✅ Готово! Всего: {args.count} файлов ({total_mb:.2f} МБ) за {elapsed:.2f} сек\
+            ({speed:.2f} МБ/с)")
 
 
 if __name__ == "__main__":
