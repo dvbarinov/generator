@@ -6,22 +6,22 @@
 - логарифмического распределения.
 
 Использование:
-    # Фиксированный размер
-    python generate_files.py --count 10 --size 1024
+# Фиксированный размер
+python generate_files.py --count 10 --size 1024
 
-    # Диапазон: 10 файлов от 100 до 1000 КБ (равномерно)
-    python generate_files.py --count 10 --size-range 100 1000
+# Диапазон: 10 файлов от 100 до 1000 КБ (равномерно)
+python generate_files.py --count 10 --size-range 100 1000
 
-    # Случайные размеры в диапазоне
-    python generate_files.py --count 100 --size-range 50 200 --random-sizes
+# Случайные размеры в диапазоне
+python generate_files.py --count 100 --size-range 50 200 --random-sizes
 
-    # Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
-    python generate_files.py -n 100 --log-distribution 1 500 2.0
+# Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
+python generate_files.py -n 100 --log-distribution 1 500 2.0
 
-    # Типовые файлы
-    python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
-    python generate_files.py -n 100 --size 0 --content-type json --json-schema log --extension .json
-    python generate_files.py -n 100 --size 0 --content-type image --image-size 640x480 --image-format png --extension .png
+# Типовые файлы
+python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
+python generate_files.py -n 100 --size 0 --content-type json --json-schema log --extension .json
+python generate_files.py -n 100 --size 0 --content-type image --image-size 640x480 --image-format png --extension .png
 """
 
 import argparse
@@ -32,6 +32,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import random
 import json
+from io import BytesIO
 from PIL import Image, ImageDraw
 
 
@@ -76,8 +77,8 @@ def generate_json_content(schema: str = "user") -> bytes:
         }
     elif schema == "log":
         data = {
-            "timestamp": f"2026-01-{random.randint(1,31):02d}\
-            T{random.randint(0,23):02d}:{random.randint(0,59):02d}:{random.randint(0,59):02d}Z",
+            "timestamp": f"2026-01-{random.randint(1, 31):02d}\
+            T{random.randint(0, 23):02d}:{random.randint(0, 59):02d}:{random.randint(0, 59):02d}Z",
             "level": random.choice(["INFO", "WARN", "ERROR"]),
             "message": f"Operation completed in {random.uniform(10, 500):.2f}ms",
             "service": random.choice(["auth", "db", "api", "cache"])
@@ -99,7 +100,6 @@ def generate_json_content(schema: str = "user") -> bytes:
 
 def generate_image_content(width: int = 100, height: int = 100, fmt: str = "PNG") -> bytes:
     """Генерирует простое изображение (градиент или цветной блок)."""
-    from io import BytesIO
     img = Image.new("RGB", (width, height), color=(0, 0, 0))
     draw = ImageDraw.Draw(img)
 
@@ -109,7 +109,7 @@ def generate_image_content(width: int = 100, height: int = 100, fmt: str = "PNG"
 
     # Добавим немного шума
     for _ in range(width * height // 100):
-        x, y = random.randint(0, width-1), random.randint(0, height-1)
+        x, y = random.randint(0, width - 1), random.randint(0, height - 1)
         noise = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
         draw.point((x, y), fill=noise)
 
@@ -121,7 +121,7 @@ def generate_image_content(width: int = 100, height: int = 100, fmt: str = "PNG"
 def create_test_file(args):
     """Создаёт один файл. Принимает кортеж (filepath, size_kb)."""
     filepath, size_kb, content_config = args
-    #ext = filepath.suffix.lower()
+    # ext = filepath.suffix.lower()
 
     if content_config["type"] == "text":
         content = generate_text_content(
@@ -214,7 +214,24 @@ def parse_outer_args():
     return args
 
 
+def validate_common_args(args):
+    """Проверяет общие входящие аргументы."""
+    if args.count <= 0:
+        raise ValueError("Количество файлов должно быть > 0")
+    if args.workers < 1:
+        raise ValueError("Число потоков должно быть >= 1")
+
+
+def validate_size_range(max_size, min_size):
+    """Проверяет диапазон размеров."""
+    if min_size < 0 or max_size < 0:
+        raise ValueError("Размеры не могут быть отрицательными")
+    if min_size > max_size:
+        raise ValueError("MIN не может быть больше MAX")
+
+
 def define_bin_size(args, sizes):
+    """Определяет размер бинарных файлов."""
     skew = 0.0
 
     if args.size is not None:
@@ -224,10 +241,7 @@ def define_bin_size(args, sizes):
 
     elif args.size_range is not None:
         min_size, max_size = args.size_range
-        if min_size < 0 or max_size < 0:
-            raise ValueError("Размеры не могут быть отрицательными")
-        if min_size > max_size:
-            raise ValueError("MIN не может быть больше MAX")
+        validate_size_range(max_size, min_size)
 
         if args.random_sizes:
             random.seed(42)
@@ -260,10 +274,7 @@ def main():
     """Основной запуск"""
     args = parse_outer_args()
 
-    if args.count <= 0:
-        raise ValueError("Количество файлов должно быть > 0")
-    if args.workers < 1:
-        raise ValueError("Число потоков должно быть >= 1")
+    validate_common_args(args)
 
     sizes = []
 
