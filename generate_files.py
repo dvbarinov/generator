@@ -31,7 +31,7 @@ from pathlib import Path
 import hashlib
 import random
 import math
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait
 import time
 
 
@@ -44,6 +44,16 @@ try:
     from scipy.stats import gaussian_kde
 except ImportError:
     PLOT_AVAILABLE = False
+
+
+# Глобальные переменные для анимации (только при --animate)
+animation_data = {
+    "sizes": [],
+    "fig": None,
+    "ax": None,
+    "bars": None,
+    "initialized": False
+}
 
 
 def generate_deterministic_chunk(seed: int, size: int) -> bytes:
@@ -103,6 +113,60 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
         sizes[-1] = max_kb
 
     return sizes
+
+
+def init_animation(max_size: int, min_size: int):
+    """Инициализирует окно анимации."""
+    global animation_data
+    if not PLOT_AVAILABLE:
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.set_xlim(min_size, max_size)
+    ax.set_ylim(0, 100)  # будет динамически обновляться
+    ax.set_xlabel("Размер файла (КБ)")
+    ax.set_ylabel("Количество файлов")
+    ax.set_title("Анимация генерации файлов (в реальном времени)")
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    animation_data.update({
+        "fig": fig,
+        "ax": ax,
+        "initialized": True,
+        "min_size": min_size,
+        "max_size": max_size
+    })
+    plt.ion()  # включаем интерактивный режим
+    plt.show()
+
+
+def update_animation(new_sizes: list[int]):
+    """Обновляет график анимации."""
+    global animation_data
+    if not animation_data["initialized"] or not PLOT_AVAILABLE:
+        return
+
+    animation_data["sizes"].extend(new_sizes)
+    sizes = animation_data["sizes"]
+    min_size = animation_data["min_size"]
+    max_size = animation_data["max_size"]
+
+    ax = animation_data["ax"]
+    ax.clear()
+
+    # Определяем число бинов
+    bins = min(30, len(set(sizes)))
+    counts, edges, _ = ax.hist(sizes, bins=bins, range=(min_size, max_size), color='lightgreen', edgecolor='black')
+
+    ax.set_xlim(min_size, max_size)
+    ax.set_ylim(0, max(counts) * 1.1 if counts.size > 0 else 10)
+    ax.set_xlabel("Размер файла (КБ)")
+    ax.set_ylabel("Количество файлов")
+    ax.set_title(f"Анимация: создано {len(sizes)} файлов")
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    animation_data["fig"].canvas.draw()
+    plt.pause(0.01)  # даём время на отрисовку
 
 
 def plot_distribution(sizes: list[int], output_dir: Path):
@@ -169,6 +233,8 @@ def main():
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
     parser.add_argument("--plot", action="store_true",
                         help="Показать и сохранить график распределения размеров")
+    parser.add_argument("--animate", action="store_true",
+                        help="Анимировать процесс генерации (замедляет работу!)")
 
     args = parser.parse_args()
 
@@ -239,22 +305,45 @@ def main():
         print(f"  Размеры: {min(sizes)}–{max(sizes)} КБ (среднее: {avg:.1f} КБ)")
 
     start_time = time.time()
+    completed_sizes = []
     completed = 0
+    next_update = max(1, args.count // 20)  # обновлять каждые 5%
+
+    if args.animate:
+        init_animation(max(sizes), min(sizes))
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        # Отправляем все задачи
-        future_to_path = {executor.submit(create_test_file, task): task[0] for task in file_tasks}
+        future_to_task = {executor.submit(create_test_file, task): task for task in file_tasks}
 
-        # Обрабатываем завершённые задачи
-        for future in as_completed(future_to_path):
-            try:
-                future.result()
-                completed += 1
-                if completed % max(1, args.count // 10) == 0 or completed == args.count:
-                    print(f"  Создано: {completed}/{args.count}")
-            except (OSError, IOError, ValueError) as exc:
-                filepath = future_to_path[future]
-                print(f"  Ошибка при создании {filepath}: {exc}")
+        while future_to_task:
+            # Ждём хотя бы одно завершение
+            done, _ = wait(list(future_to_task.keys()), timeout=0.1)
+            for future in done:
+                task = future_to_task.pop(future)
+                try:
+                    filepath = future.result()
+                    completed += 1
+                    completed_sizes.append(task[1])  # размер файла
+
+                    if completed % max(1, args.count // 10) == 0 or completed == args.count:
+                        print(f"  Создано: {completed}/{args.count}")
+
+                    # Обновление анимации
+                    if args.animate and completed % next_update == 0:
+                        # Передаём только новые размеры с последнего обновления
+                        recent = completed_sizes[-next_update:]
+                        update_animation(recent)
+
+                except (OSError, IOError, ValueError) as exc:
+                    filepath = task[0]
+                    print(f"  Ошибка при создании {filepath}: {exc}")
+
+    # Финальное обновление анимации
+    if args.animate and completed_sizes:
+        update_animation(completed_sizes[len(completed_sizes) - (completed % next_update or next_update):])
+        print("\n🎬 Анимация завершена. Закройте окно для продолжения.")
+        plt.ioff()
+        plt.show()  # ждём закрытия окна
 
     elapsed = time.time() - start_time
     total_mb = sum(sizes) / 1024
