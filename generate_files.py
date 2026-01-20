@@ -16,7 +16,7 @@
     python generate_files.py --count 100 --size-range 50 200 --random-sizes
 
     # Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
-    python generate_files.py -n 500 --log-distribution 1 5000 2.0
+    python generate_files.py -n 500 --log-distribution 1 500 2.0
 """
 
 import argparse
@@ -50,7 +50,7 @@ def create_test_file(args):
     if size_bytes == 0:
         filepath.write_bytes(b"")
         return str(filepath)
-    
+
     seed = hash(str(filepath.name)) & 0xFFFFFFFF
     content = generate_deterministic_chunk(seed, size_bytes)
     filepath.write_bytes(content)
@@ -79,7 +79,7 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
         # Нормализуем в диапазон [min, max]
         normalized = min_kb + (val / (val + 1)) * (max_kb - min_kb)
         sizes.append(int(normalized))
-    
+
     # Убедимся, что хотя бы один файл близок к min и max
     if count >= 2:
         sizes[0] = min_kb
@@ -89,15 +89,17 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
 
 
 def main():
+    """Основной запуск"""
     parser = argparse.ArgumentParser(description="Параллельный генератор тестовых файлов")
     parser.add_argument("--count", "-n", type=int, required=True, help="Количество файлов")
-    
+
     # Группа выбора режима размера
     size_mode = parser.add_mutually_exclusive_group(required=True)
     size_mode.add_argument("--size", "-s", type=int, help="Фиксированный размер файла в КБ")
     size_mode.add_argument("--size-range", type=int, nargs=2, metavar=("MIN", "MAX"),
                            help="Диапазон размеров (равномерный или случайный)")
-    size_mode.add_argument("--log-distribution", type=str, nargs='+', metavar=("MIN", "MAX", "SKEW"),
+    size_mode.add_argument("--log-distribution", type=str, nargs='+',
+                           metavar=("MIN", "MAX", "SKEW"),
                            help="Логарифмическое распределение: MIN MAX [SKEW=1.0]")
 
     parser.add_argument("--random-sizes", action="store_true",
@@ -142,7 +144,8 @@ def main():
             min_kb, max_kb = map(int, args.log_distribution)
             skew = 1.0
         elif len(args.log_distribution) == 3:
-            min_kb, max_kb, skew = int(args.log_distribution[0]), int(args.log_distribution[1]), float(args.log_distribution[2])
+            min_kb, max_kb = int(args.log_distribution[0]), int(args.log_distribution[1])
+            skew = float(args.log_distribution[2])
         else:
             raise ValueError("Нужно указать MIN MAX [SKEW] для --log-distribution")
 
