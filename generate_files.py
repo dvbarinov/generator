@@ -17,6 +17,13 @@
 
     # Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
     python generate_files.py -n 500 --log-distribution 1 500 2.0
+
+    # С визуализацией
+    ## Равномерное
+    python generate_test_files.py -n 500 --size-range 100 5000 --plot -o ./uniform
+
+    ## Логарифмическое
+    python generate_test_files.py -n 500 --log-distribution 100 5000 --plot -o ./lognorm
 """
 
 import argparse
@@ -26,6 +33,17 @@ import random
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+
+
+# Импорты для визуализации (опционально)
+PLOT_AVAILABLE = True
+try:
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from numpy.linalg import LinAlgError
+    from scipy.stats import gaussian_kde
+except ImportError:
+    PLOT_AVAILABLE = False
 
 
 def generate_deterministic_chunk(seed: int, size: int) -> bytes:
@@ -87,6 +105,48 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
     return sizes
 
 
+def plot_distribution(sizes: list[int], output_dir: Path):
+    """Строит и сохраняет гистограмму распределения размеров."""
+    if not PLOT_AVAILABLE:
+        print("⚠️  matplotlib не установлен. Установите его для визуализации.")
+        return
+
+    _, ax = plt.subplots(figsize=(10, 6))
+
+    # Гистограмма
+    ax.hist(sizes, bins=min(50, len(set(sizes))),
+            color='skyblue', edgecolor='black', alpha=0.7, density=True)
+
+    # Плотность (ядровое сглаживание)
+    try:
+        kde = gaussian_kde(sizes)
+        x_range = np.linspace(min(sizes), max(sizes), 500)
+        ax.plot(x_range, kde(x_range), color='red', linewidth=2, label='Плотность')
+        ax.legend()
+    except (ValueError, LinAlgError, TypeError):
+        pass  # игнорируем, если KDE не сработал
+
+    ax.set_xlabel('Размер файла (КБ)')
+    ax.set_ylabel('Плотность')
+    ax.set_title('Распределение размеров тестовых файлов')
+    ax.grid(True, linestyle='--', alpha=0.6)
+
+    # Логарифмическая шкала по X, если диапазон большой
+    if max(sizes) / min(sizes) > 100 and min(sizes) > 0:
+        ax.set_xscale('log')
+        ax.set_xlabel('Размер файла (КБ, лог. шкала)')
+
+    plt.tight_layout()
+    plot_path = output_dir / "size_distribution.png"
+    plt.savefig(plot_path, dpi=150)
+    print(f"График сохранён: {plot_path}")
+
+    # Показываем окно, только если запущено интерактивно
+    if plt.get_backend() != 'agg':
+        plt.show()
+    plt.close()
+
+
 def main():
     """Основной запуск"""
     parser = argparse.ArgumentParser(description="Параллельный генератор тестовых файлов")
@@ -107,6 +167,8 @@ def main():
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
+    parser.add_argument("--plot", action="store_true",
+                        help="Показать и сохранить график распределения размеров")
 
     args = parser.parse_args()
 
@@ -200,7 +262,9 @@ def main():
 
     print(f"\n✅ Готово! Всего: {args.count} файлов ({total_mb:.2f} МБ) за {elapsed:.2f} сек\
             ({speed:.2f} МБ/с)")
-
+    # Визуализация
+    if args.plot:
+        plot_distribution(sizes, output_dir)
 
 if __name__ == "__main__":
     main()
