@@ -17,15 +17,22 @@
 
     # Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
     python generate_files.py -n 500 --log-distribution 1 500 2.0
+
+    # Типовые файлы
+    python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
+    python generate_files.py -n 100 --size 0 --content-type json --json-schema log --extension .json
+    python generate_files.py -n 100 --size 0 --content-type image --image-size 640x480 --image-format png --extension .png
 """
 
 import argparse
 from pathlib import Path
 import hashlib
-import random
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+import random
+import json
+from PIL import Image, ImageDraw
 
 
 def generate_deterministic_chunk(seed: int, size: int) -> bytes:
@@ -42,16 +49,105 @@ def generate_deterministic_chunk(seed: int, size: int) -> bytes:
     return data[:size]
 
 
+def generate_text_content(lines: int = 10, words_per_line: int = 8) -> bytes:
+    """Генерирует случайный текст (похожий на лорем ипсум)."""
+    lorem_words = [
+        "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
+        "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et",
+        "dolore", "magna", "aliqua", "quis", "nostrud", "exercitation", "ullamco",
+        "laboris", "nisi", "aliquip", "ex", "ea", "commodo", "consequat"
+    ]
+    lines_list = []
+    for _ in range(lines):
+        line_words = [random.choice(lorem_words) for _ in range(words_per_line)]
+        lines_list.append(" ".join(line_words).capitalize() + ".")
+    return "\n".join(lines_list).encode("utf-8")
+
+
+def generate_json_content(schema: str = "user") -> bytes:
+    """Генерирует JSON по заданной схеме."""
+    if schema == "user":
+        data = {
+            "id": random.randint(1000, 9999),
+            "name": f"User_{random.randint(1, 1000)}",
+            "email": f"user{random.randint(1, 1000)}@example.com",
+            "active": random.choice([True, False]),
+            "tags": random.sample(["admin", "guest", "premium", "trial"], k=random.randint(1, 3))
+        }
+    elif schema == "log":
+        data = {
+            "timestamp": f"2026-01-{random.randint(1,31):02d}\
+            T{random.randint(0,23):02d}:{random.randint(0,59):02d}:{random.randint(0,59):02d}Z",
+            "level": random.choice(["INFO", "WARN", "ERROR"]),
+            "message": f"Operation completed in {random.uniform(10, 500):.2f}ms",
+            "service": random.choice(["auth", "db", "api", "cache"])
+        }
+    elif schema == "event":
+        data = {
+            "event_id": f"evt_{random.randint(100000, 999999)}",
+            "type": random.choice(["click", "purchase", "login", "logout"]),
+            "user_id": random.randint(1, 10000),
+            "properties": {
+                "page": f"/page/{random.randint(1, 20)}",
+                "device": random.choice(["mobile", "desktop", "tablet"])
+            }
+        }
+    else:
+        data = {"error": "unknown schema", "schema": schema}
+    return json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def generate_image_content(width: int = 100, height: int = 100, fmt: str = "PNG") -> bytes:
+    """Генерирует простое изображение (градиент или цветной блок)."""
+    from io import BytesIO
+    img = Image.new("RGB", (width, height), color=(0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    # Простой цветной прямоугольник
+    r, g, b = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
+    draw.rectangle([0, 0, width, height], fill=(r, g, b))
+
+    # Добавим немного шума
+    for _ in range(width * height // 100):
+        x, y = random.randint(0, width-1), random.randint(0, height-1)
+        noise = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+        draw.point((x, y), fill=noise)
+
+    buffer = BytesIO()
+    img.save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
 def create_test_file(args):
     """Создаёт один файл. Принимает кортеж (filepath, size_kb)."""
-    filepath, size_kb = args
-    size_bytes = size_kb * 1024
-    if size_bytes == 0:
-        filepath.write_bytes(b"")
-        return str(filepath)
+    filepath, size_kb, content_config = args
+    #ext = filepath.suffix.lower()
 
-    seed = hash(str(filepath.name)) & 0xFFFFFFFF
-    content = generate_deterministic_chunk(seed, size_bytes)
+    if content_config["type"] == "text":
+        content = generate_text_content(
+            lines=content_config["text_lines"],
+            words_per_line=content_config["text_words_per_line"]
+        )
+    elif content_config["type"] == "json":
+        content = generate_json_content(schema=content_config["json_schema"])
+    elif content_config["type"] == "image":
+        w, h = content_config["image_size"]
+        fmt = content_config["image_format"].upper()
+        content = generate_image_content(width=w, height=h, fmt=fmt)
+        # Расширение должно соответствовать формату
+        # if fmt == "JPEG":
+        #     new_path = filepath.with_suffix(".jpg")
+        #     new_path.write_bytes(content)
+        #     return str(new_path)
+    else:
+        # Старый режим: бинарные данные
+        size_bytes = size_kb * 1024
+        if size_bytes == 0:
+            content = b""
+        else:
+            seed = hash(str(filepath.name)) & 0xFFFFFFFF
+            content = generate_deterministic_chunk(seed, size_bytes)
+
     filepath.write_bytes(content)
     return str(filepath)
 
@@ -87,11 +183,9 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
     return sizes
 
 
-def main():
-    """Основной запуск"""
+def parse_outer_args():
     parser = argparse.ArgumentParser(description="Параллельный генератор тестовых файлов")
     parser.add_argument("--count", "-n", type=int, required=True, help="Количество файлов")
-
     # Группа выбора режима размера
     size_mode = parser.add_mutually_exclusive_group(required=True)
     size_mode.add_argument("--size", "-s", type=int, help="Фиксированный размер файла в КБ")
@@ -100,20 +194,58 @@ def main():
     size_mode.add_argument("--log-distribution", type=str, nargs='+',
                            metavar=("MIN", "MAX", "SKEW"),
                            help="Логарифмическое распределение: MIN MAX [SKEW=1.0]")
-
     parser.add_argument("--random-sizes", action="store_true",
                         help="Случайные размеры в --size-range (иначе — равномерные)")
     parser.add_argument("--output", "-o", type=str, default="./test_files", help="Папка вывода")
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
-
+    parser.add_argument("--content-type", choices=["text", "json", "image"], default="binary",
+                        help="Тип содержимого: text, json, image (по умолчанию: бинарные данные)")
+    parser.add_argument("--text-lines", type=int, default=10,
+                        help="Количество строк в текстовом файле")
+    parser.add_argument("--text-words-per-line", type=int, default=8, help="Слов в строке")
+    parser.add_argument("--json-schema", choices=["user", "log", "event"], default="user",
+                        help="Схема JSON")
+    parser.add_argument("--image-format", choices=["png", "jpg"], default="png",
+                        help="Формат изображения")
+    parser.add_argument("--image-size", type=str, default="100x100", help="Размер изображения WxH")
     args = parser.parse_args()
+    return args
+
+
+def main():
+    """Основной запуск"""
+    args = parse_outer_args()
 
     if args.count <= 0:
         raise ValueError("Количество файлов должно быть > 0")
     if args.workers < 1:
         raise ValueError("Число потоков должно быть >= 1")
+
+    # Конфигурация контента
+    content_config = {"type": args.content_type}
+    if args.content_type == "text":
+        content_config.update({
+            "text_lines": args.text_lines,
+            "text_words_per_line": args.text_words_per_line
+        })
+        # Для текста игнорируем размер в КБ — используем реальный объём
+        sizes = [0] * args.count  # будет перезаписано
+    elif args.content_type == "json":
+        content_config["json_schema"] = args.json_schema
+        sizes = [0] * args.count
+    elif args.content_type == "image":
+        content_config["image_format"] = args.image_format
+        try:
+            w, h = map(int, args.image_size.split("x"))
+            content_config["image_size"] = (w, h)
+        except ValueError:
+            raise ValueError("Неверный формат --image-size. Используйте WxH, например: 1920x1080")
+        sizes = [0] * args.count
+    else:
+        # binary — используем sizes как раньше
+        pass
 
     # Определяем список размеров
     if args.size is not None:
@@ -162,7 +294,7 @@ def main():
     for i in range(1, args.count + 1):
         filename = f"{args.prefix}_{str(i).zfill(width)}{args.extension}"
         filepath = output_dir / filename
-        file_tasks.append((filepath, sizes[i - 1]))
+        file_tasks.append((filepath, sizes[i - 1], content_config))
 
     print(f"Генерация {args.count} файлов в '{output_dir}' с {args.workers} потоками...")
     if args.size is not None:
