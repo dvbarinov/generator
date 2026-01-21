@@ -138,6 +138,25 @@ def generate_csv_content(rows: int = 100) -> bytes:
     return output.getvalue().encode("utf-8")
 
 
+def generate_xml_content(items: int = 50) -> bytes:
+    from xml.etree.ElementTree import Element, SubElement, tostring
+    import xml.dom.minidom
+
+    root = Element("users")
+    for i in range(1, items + 1):
+        user = SubElement(root, "user", id=str(i))
+        name = SubElement(user, "name")
+        name.text = f"User_{i}"
+        email = SubElement(user, "email")
+        email.text = f"user{i}@example.com"
+        score = SubElement(user, "score")
+        score.text = str(round(random.uniform(0, 100), 2))
+
+    rough = tostring(root, "utf-8")
+    reparsed = xml.dom.minidom.parseString(rough)
+    return reparsed.toprettyxml(indent="  ").encode("utf-8")
+
+
 def create_test_file(args):
     """Создаёт один файл. Принимает кортеж (filepath, size_kb)."""
     filepath, size_kb, content_config = args
@@ -163,6 +182,9 @@ def create_test_file(args):
     elif ctype == "csv":
         content = generate_csv_content(rows=content_config["csv_rows"])
         filepath = filepath.with_suffix(".csv")
+    elif ctype == "xml":
+        content = generate_xml_content(items=content_config["xml_items"])
+        filepath = filepath.with_suffix(".xml")
     else:
         # Старый режим: бинарные данные
         size_bytes = size_kb * 1024
@@ -224,7 +246,8 @@ def parse_outer_args():
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
-    parser.add_argument("--content-type", choices=["text", "json", "image", "csv"], default="binary",
+    parser.add_argument("--content-type", choices=["text", "json", "image", "csv", "xml"],
+                        default="binary",
                         help="Тип содержимого: text, json, image (по умолчанию: бинарные данные)")
     parser.add_argument("--text-lines", type=int, default=10,
                         help="Количество строк в текстовом файле")
@@ -236,6 +259,7 @@ def parse_outer_args():
     parser.add_argument("--image-size", type=str, default="100x100",
                         help="Размер изображения WxH")
     parser.add_argument("--csv-rows", type=int, default=100, help="Количество строк в CSV")
+    parser.add_argument("--xml-items", type=int, default=50, help="Количество элементов в XML")
     args = parser.parse_args()
     return args
 
@@ -328,6 +352,9 @@ def main():
         sizes = [0] * args.count
     elif args.content_type == "csv":
         content_config.update({"csv_rows": args.csv_rows})
+        sizes = [0] * args.count
+    elif args.content_type == "xml":
+        content_config.update({"xml_items": args.xml_items})
         sizes = [0] * args.count
     else:
         # binary — используем sizes как раньше
