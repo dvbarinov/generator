@@ -118,10 +118,31 @@ def generate_image_content(width: int = 100, height: int = 100, fmt: str = "PNG"
     return buffer.getvalue()
 
 
+def generate_csv_content(rows: int = 100) -> bytes:
+    import csv
+    from io import StringIO
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "name", "email", "score", "active"])
+
+    for i in range(1, rows + 1):
+        writer.writerow([
+            i,
+            f"User_{i}",
+            f"user{i}@example.com",
+            round(random.uniform(0, 100), 2),
+            random.choice(["true", "false"])
+        ])
+
+    return output.getvalue().encode("utf-8")
+
+
 def create_test_file(args):
     """Создаёт один файл. Принимает кортеж (filepath, size_kb)."""
     filepath, size_kb, content_config = args
     # ext = filepath.suffix.lower()
+    ctype = content_config["type"]
 
     if content_config["type"] == "text":
         content = generate_text_content(
@@ -139,6 +160,9 @@ def create_test_file(args):
         #     new_path = filepath.with_suffix(".jpg")
         #     new_path.write_bytes(content)
         #     return str(new_path)
+    elif ctype == "csv":
+        content = generate_csv_content(rows=content_config["csv_rows"])
+        filepath = filepath.with_suffix(".csv")
     else:
         # Старый режим: бинарные данные
         size_bytes = size_kb * 1024
@@ -200,7 +224,7 @@ def parse_outer_args():
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
-    parser.add_argument("--content-type", choices=["text", "json", "image"], default="binary",
+    parser.add_argument("--content-type", choices=["text", "json", "image", "csv"], default="binary",
                         help="Тип содержимого: text, json, image (по умолчанию: бинарные данные)")
     parser.add_argument("--text-lines", type=int, default=10,
                         help="Количество строк в текстовом файле")
@@ -209,7 +233,9 @@ def parse_outer_args():
                         help="Схема JSON")
     parser.add_argument("--image-format", choices=["png", "jpg"], default="png",
                         help="Формат изображения")
-    parser.add_argument("--image-size", type=str, default="100x100", help="Размер изображения WxH")
+    parser.add_argument("--image-size", type=str, default="100x100",
+                        help="Размер изображения WxH")
+    parser.add_argument("--csv-rows", type=int, default=100, help="Количество строк в CSV")
     args = parser.parse_args()
     return args
 
@@ -299,6 +325,9 @@ def main():
             raise ValueError(
                 "Неверный формат --image-size. Используйте WxH, например: 1920x1080"
             ) from exc
+        sizes = [0] * args.count
+    elif args.content_type == "csv":
+        content_config.update({"csv_rows": args.csv_rows})
         sizes = [0] * args.count
     else:
         # binary — используем sizes как раньше
