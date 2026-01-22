@@ -187,6 +187,45 @@ def generate_pdf_content(title: str = "Test Document") -> bytes:
     return buffer.getvalue()
 
 
+def generate_svg_content(width: int = 200, height: int = 200) -> bytes:
+    """Генерирует простой SVG-файл с фигурами и текстом."""
+    # Случайные цвета
+    bg_color = f"#{random.randint(0, 0xFFFFFF):06x}"
+    rect_color = f"#{random.randint(0, 0xFFFFFF):06x}"
+    circle_color = f"#{random.randint(0, 0xFFFFFF):06x}"
+    text_color = "#ffffff" if sum(int(bg_color[i:i + 2], 16) for i in (1, 3, 5)) < 384 else "#000000"
+
+    svg_content = f'''<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
+  <!-- Фон -->
+  <rect width="100%" height="100%" fill="{bg_color}" />
+
+  <!-- Случайный прямоугольник -->
+  <rect x="{width // 4}" y="{height // 4}" width="{width // 2}" height="{height // 3}" 
+        fill="{rect_color}" opacity="0.8" />
+
+  <!-- Случайный круг -->
+  <circle cx="{width // 2}" cy="{height // 2}" r="{min(width, height) // 5}" 
+          fill="{circle_color}" opacity="0.7" />
+
+  <!-- Текст -->
+  <text x="50%" y="{height // 5}" font-family="Arial, sans-serif" font-size="16" 
+        fill="{text_color}" text-anchor="middle">
+    Test SVG #{random.randint(1000, 9999)}
+  </text>
+
+  <!-- Градиентная линия -->
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:{rect_color};stop-opacity:1" />
+      <stop offset="100%" style="stop-color:{circle_color};stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <line x1="0" y1="{height - 20}" x2="{width}" y2="{height - 20}" 
+        stroke="url(#grad1)" stroke-width="4" />
+</svg>'''
+    return svg_content.encode("utf-8")
+
+
 def create_test_file(args):
     """Создаёт один файл. Принимает кортеж (filepath, size_kb)."""
     filepath, size_kb, content_config = args
@@ -219,6 +258,10 @@ def create_test_file(args):
     elif ctype == "pdf":
         content = generate_pdf_content(title=content_config["pdf_title"])
         filepath = filepath.with_suffix(".pdf")
+    elif ctype == "svg":
+        w, h = content_config["svg_size"]
+        content = generate_svg_content(width=w, height=h)
+        filepath = filepath.with_suffix(".svg")
     else:
         # Старый режим: бинарные данные
         size_bytes = size_kb * 1024
@@ -281,8 +324,8 @@ def parse_outer_args():
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
-    parser.add_argument("--content-type", choices=["text", "json", "image", "csv", "xml", "pdf"],
-                        default="binary",
+    parser.add_argument("--content-type",
+                        choices=["text", "json", "image", "csv", "xml", "pdf", "svg"], default="binary",
                         help="Тип содержимого: text, json, image (по умолчанию: бинарные данные)")
     parser.add_argument("--text-lines", type=int, default=10,
                         help="Количество строк в текстовом файле")
@@ -296,8 +339,46 @@ def parse_outer_args():
     parser.add_argument("--csv-rows", type=int, default=100, help="Количество строк в CSV")
     parser.add_argument("--xml-items", type=int, default=50, help="Количество элементов в XML")
     parser.add_argument("--pdf-title", type=str, default="Test Document", help="Заголовок PDF")
+    parser.add_argument("--svg-size", type=str, default="200x200", help="Размер SVG WxH")
     args = parser.parse_args()
     return args
+
+
+def prepare_content_config(args):
+    """ Конфигурация контента """
+    content_config = {"type": args.content_type}
+    if args.content_type == "text":
+        content_config.update({
+            "text_lines": args.text_lines,
+            "text_words_per_line": args.text_words_per_line
+        })
+        # Для текста игнорируем размер в КБ — используем реальный объём
+    elif args.content_type == "json":
+        content_config["json_schema"] = args.json_schema
+    elif args.content_type == "image":
+        content_config["image_format"] = args.image_format
+        try:
+            w, h = map(int, args.image_size.split("x"))
+            content_config["image_size"] = (w, h)
+        except ValueError as exc:
+            raise ValueError(
+                "Неверный формат --image-size. Используйте WxH, например: 1920x1080"
+            ) from exc
+    elif args.content_type == "csv":
+        content_config.update({"csv_rows": args.csv_rows})
+    elif args.content_type == "xml":
+        content_config.update({"xml_items": args.xml_items})
+    elif args.content_type == "pdf":
+        content_config.update({"pdf_title": args.pdf_title})
+    elif args.content_type == "svg":
+        try:
+            w, h = map(int, args.svg_size.split("x"))
+            content_config.update({"svg_size": (w, h)})
+        except ValueError as exc:
+            raise ValueError(
+                "Неверный формат --svg-size. Используйте WxH, например: 500x300"
+            ) from exc
+    return content_config
 
 
 def validate_common_args(args):
@@ -364,36 +445,9 @@ def main():
 
     sizes = []
 
-    # Конфигурация контента
-    content_config = {"type": args.content_type}
-    if args.content_type == "text":
-        content_config.update({
-            "text_lines": args.text_lines,
-            "text_words_per_line": args.text_words_per_line
-        })
-        # Для текста игнорируем размер в КБ — используем реальный объём
-        sizes = [0] * args.count  # будет перезаписано
-    elif args.content_type == "json":
-        content_config["json_schema"] = args.json_schema
-        sizes = [0] * args.count
-    elif args.content_type == "image":
-        content_config["image_format"] = args.image_format
-        try:
-            w, h = map(int, args.image_size.split("x"))
-            content_config["image_size"] = (w, h)
-        except ValueError as exc:
-            raise ValueError(
-                "Неверный формат --image-size. Используйте WxH, например: 1920x1080"
-            ) from exc
-        sizes = [0] * args.count
-    elif args.content_type == "csv":
-        content_config.update({"csv_rows": args.csv_rows})
-        sizes = [0] * args.count
-    elif args.content_type == "xml":
-        content_config.update({"xml_items": args.xml_items})
-        sizes = [0] * args.count
-    elif args.content_type == "pdf":
-        content_config.update({"pdf_title": args.pdf_title})
+    content_config = prepare_content_config(args)
+
+    if args.content_type is not None:
         sizes = [0] * args.count
     else:
         # binary — используем sizes как раньше
