@@ -19,9 +19,13 @@ python generate_files.py --count 100 --size-range 50 200 --random-sizes
 python generate_files.py -n 100 --log-distribution 1 500 2.0
 
 # Типовые файлы
-python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
-python generate_files.py -n 100 --size 0 --content-type json --json-schema log --extension .json
+python generate_files.py -n 100 --size 0 --content-type text --text-lines 20
+python generate_files.py -n 100 --size 0 --content-type json --json-schema log
 python generate_files.py -n 100 --content-type image --image-size 640x480 --image-format png
+python generate_files.py -n 10 --size 0 --content-type csv --csv-rows 1000
+python generate_files.py -n 10 --size 0 --content-type xml --xml-items 100
+python generate_files.py -n 10 --size 0 --content-type pdf
+python generate_files.py -n 10 --content-type svg --svg-size 500x300
 """
 
 import argparse
