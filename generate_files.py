@@ -19,12 +19,12 @@ python generate_files.py --count 100 --size-range 50 200 --random-sizes
 python generate_files.py -n 100 --log-distribution 1 500 2.0
 
 # Типовые файлы
-python generate_files.py -n 100 --size 0 --content-type text --text-lines 20
-python generate_files.py -n 100 --size 0 --content-type json --json-schema log
+python generate_files.py -n 100 --content-type text --text-lines 20
+python generate_files.py -n 100 --content-type json --json-schema log
 python generate_files.py -n 100 --content-type image --image-size 640x480 --image-format png
-python generate_files.py -n 10 --size 0 --content-type csv --csv-rows 1000
-python generate_files.py -n 10 --size 0 --content-type xml --xml-items 100
-python generate_files.py -n 10 --size 0 --content-type pdf
+python generate_files.py -n 10 --content-type csv --csv-rows 1000
+python generate_files.py -n 10 --content-type xml --xml-items 100
+python generate_files.py -n 10 --content-type pdf
 python generate_files.py -n 10 --content-type svg --svg-size 500x300
 """
 
@@ -312,10 +312,11 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
 
 def parse_outer_args():
     """Parses CLI arguments."""
+
     parser = argparse.ArgumentParser(description="Параллельный генератор тестовых файлов")
     parser.add_argument("--count", "-n", type=int, required=True, help="Количество файлов")
     # Группа выбора режима размера
-    size_mode = parser.add_mutually_exclusive_group(required=True)
+    size_mode = parser.add_mutually_exclusive_group()
     size_mode.add_argument("--size", "-s", type=int, help="Фиксированный размер файла в КБ")
     size_mode.add_argument("--size-range", type=int, nargs=2, metavar=("MIN", "MAX"),
                            help="Диапазон размеров (равномерный или случайный)")
@@ -453,12 +454,12 @@ def main():
 
     if args.content_type is not None:
         sizes = [0] * args.count
+        skew = 1.0
     else:
         # binary — используем sizes как раньше
-        pass
+        # Определяем список размеров
+        sizes, skew = define_bin_size(args, sizes)
 
-    # Определяем список размеров
-    sizes, skew = define_bin_size(args, sizes)
 
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
