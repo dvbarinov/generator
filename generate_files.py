@@ -21,7 +21,7 @@ python generate_files.py -n 100 --log-distribution 1 500 2.0
 # Типовые файлы
 python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
 python generate_files.py -n 100 --size 0 --content-type json --json-schema log --extension .json
-python generate_files.py -n 100 --size 0 --content-type image --image-size 640x480 --image-format png
+python generate_files.py -n 100 --content-type image --image-size 640x480 --image-format png
 """
 
 import argparse
@@ -159,13 +159,13 @@ def generate_xml_content(items: int = 50) -> bytes:
 
 
 def generate_pdf_content(title: str = "Test Document") -> bytes:
+    """"Generates simple PDF with test data"""
     from reportlab.pdfgen import canvas
     from reportlab.lib.pagesizes import A4
-    from io import BytesIO
 
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
-    width, height = A4
+    _, height = A4
 
     c.setFont("Helvetica-Bold", 20)
     c.drawString(50, height - 50, title)
@@ -264,6 +264,7 @@ def generate_log_sizes(count: int, min_kb: int, max_kb: int, skew: float = 1.0) 
 
 
 def parse_outer_args():
+    """Parses CLI arguments."""
     parser = argparse.ArgumentParser(description="Параллельный генератор тестовых файлов")
     parser.add_argument("--count", "-n", type=int, required=True, help="Количество файлов")
     # Группа выбора режима размера
