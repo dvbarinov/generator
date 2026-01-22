@@ -158,20 +158,49 @@ def generate_xml_content(items: int = 50) -> bytes:
     return reparsed.toprettyxml(indent="  ").encode("utf-8")
 
 
+def generate_pdf_content(title: str = "Test Document") -> bytes:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from io import BytesIO
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    c.setFont("Helvetica-Bold", 20)
+    c.drawString(50, height - 50, title)
+
+    c.setFont("Helvetica", 12)
+    c.drawString(50, height - 80, f"Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # Случайный текст
+    lorem = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. " * 20
+    text = c.beginText(50, height - 120)
+    text.setFont("Helvetica", 10)
+    for line in lorem.split(". ")[:30]:
+        text.textLine(line + ".")
+    c.drawText(text)
+
+    c.showPage()
+    c.save()
+
+    return buffer.getvalue()
+
+
 def create_test_file(args):
     """Создаёт один файл. Принимает кортеж (filepath, size_kb)."""
     filepath, size_kb, content_config = args
     # ext = filepath.suffix.lower()
     ctype = content_config["type"]
 
-    if content_config["type"] == "text":
+    if ctype == "text":
         content = generate_text_content(
             lines=content_config["text_lines"],
             words_per_line=content_config["text_words_per_line"]
         )
-    elif content_config["type"] == "json":
+    elif ctype == "json":
         content = generate_json_content(schema=content_config["json_schema"])
-    elif content_config["type"] == "image":
+    elif ctype == "image":
         w, h = content_config["image_size"]
         fmt = content_config["image_format"].upper()
         content = generate_image_content(width=w, height=h, fmt=fmt)
@@ -187,6 +216,9 @@ def create_test_file(args):
     elif ctype == "xml":
         content = generate_xml_content(items=content_config["xml_items"])
         filepath = filepath.with_suffix(".xml")
+    elif ctype == "pdf":
+        content = generate_pdf_content(title=content_config["pdf_title"])
+        filepath = filepath.with_suffix(".pdf")
     else:
         # Старый режим: бинарные данные
         size_bytes = size_kb * 1024
@@ -248,7 +280,7 @@ def parse_outer_args():
     parser.add_argument("--prefix", "-p", type=str, default="test", help="Префикс имени файла")
     parser.add_argument("--extension", "-e", type=str, default=".bin", help="Расширение файла")
     parser.add_argument("--workers", "-w", type=int, default=8, help="Число потоков")
-    parser.add_argument("--content-type", choices=["text", "json", "image", "csv", "xml"],
+    parser.add_argument("--content-type", choices=["text", "json", "image", "csv", "xml", "pdf"],
                         default="binary",
                         help="Тип содержимого: text, json, image (по умолчанию: бинарные данные)")
     parser.add_argument("--text-lines", type=int, default=10,
@@ -262,6 +294,7 @@ def parse_outer_args():
                         help="Размер изображения WxH")
     parser.add_argument("--csv-rows", type=int, default=100, help="Количество строк в CSV")
     parser.add_argument("--xml-items", type=int, default=50, help="Количество элементов в XML")
+    parser.add_argument("--pdf-title", type=str, default="Test Document", help="Заголовок PDF")
     args = parser.parse_args()
     return args
 
@@ -357,6 +390,9 @@ def main():
         sizes = [0] * args.count
     elif args.content_type == "xml":
         content_config.update({"xml_items": args.xml_items})
+        sizes = [0] * args.count
+    elif args.content_type == "pdf":
+        content_config.update({"pdf_title": args.pdf_title})
         sizes = [0] * args.count
     else:
         # binary — используем sizes как раньше
