@@ -21,7 +21,7 @@ python generate_files.py -n 100 --log-distribution 1 500 2.0
 # Типовые файлы
 python generate_files.py -n 100 --size 0 --content-type text --text-lines 20 --extension .txt
 python generate_files.py -n 100 --size 0 --content-type json --json-schema log --extension .json
-python generate_files.py -n 100 --size 0 --content-type image --image-size 640x480 --image-format png --extension .png
+python generate_files.py -n 100 --size 0 --content-type image --image-size 640x480 --image-format png
 """
 
 import argparse
@@ -32,7 +32,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 import random
 import json
-from io import BytesIO
+import csv
+from xml.etree.ElementTree import Element, SubElement, tostring
+import xml.dom.minidom
+from io import BytesIO, StringIO
 from PIL import Image, ImageDraw
 
 
@@ -119,8 +122,7 @@ def generate_image_content(width: int = 100, height: int = 100, fmt: str = "PNG"
 
 
 def generate_csv_content(rows: int = 100) -> bytes:
-    import csv
-    from io import StringIO
+    """"Generates simple CSV with test data"""
 
     output = StringIO()
     writer = csv.writer(output)
@@ -139,8 +141,7 @@ def generate_csv_content(rows: int = 100) -> bytes:
 
 
 def generate_xml_content(items: int = 50) -> bytes:
-    from xml.etree.ElementTree import Element, SubElement, tostring
-    import xml.dom.minidom
+    """"Generates simple XML with test data"""
 
     root = Element("users")
     for i in range(1, items + 1):
@@ -174,6 +175,7 @@ def create_test_file(args):
         w, h = content_config["image_size"]
         fmt = content_config["image_format"].upper()
         content = generate_image_content(width=w, height=h, fmt=fmt)
+        filepath = filepath.with_suffix(f".{fmt.lower()}")
         # Расширение должно соответствовать формату
         # if fmt == "JPEG":
         #     new_path = filepath.with_suffix(".jpg")
