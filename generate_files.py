@@ -15,8 +15,8 @@ python generate_files.py --count 10 --size-range 100 1000
 # Случайные размеры в диапазоне
 python generate_files.py --count 100 --size-range 50 200 --random-sizes
 
-# Логарифмическое распределение: сильный перекос в мелкие файлы (skew=2.0)
-python generate_files.py -n 100 --log-distribution 1 500 2.0
+# Логарифмическое распределение: сильный перекос в краевые файлы (skew=0.5)
+python generate_files.py -n 100 --log-distribution 1 500 0.5
 
 # Типовые файлы
 python generate_files.py -n 100 --content-type text --text-lines 20
@@ -452,7 +452,8 @@ def main():
 
     content_config = prepare_content_config(args)
 
-    if args.content_type is not None:
+    if args.content_type != 'binary':
+        # Проставим значения по умолчанию, они в этих форматах не используются
         sizes = [0] * args.count
         skew = 1.0
     else:
