@@ -1,6 +1,9 @@
 # Generator
 File generator for testing purposes.
 
+## 🚀 Releases
+The stable version is **[v1.0.0](https://github.com/dvbarinov/generator/releases/tag/v1.0.0)**.
+
 ## Tecnologies
 - Python
 
